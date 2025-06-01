@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-color: #2563eb;
+  --secondary-color: #8b5cf6;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --error-color: #ef4444;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+/* Message bubbles */
+.message-bubble {
+  @apply rounded-2xl p-3 max-w-[80%] break-words;
+}
+
+.user-message {
+  @apply bg-blue-600 text-white self-end rounded-tr-none;
+}
+
+.ai-message {
+  @apply bg-gray-200 dark:bg-gray-700 self-start rounded-tl-none;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-in-out;
+}
+
+.message-list > div {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Mic animation */
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.mic-active {
+  animation: pulse 1.5s infinite;
+  @apply text-red-500;
+}
+
+/* Form elements */
+input, textarea {
+  @apply rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-2 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200;
+}
+
+button {
+  @apply transition-all duration-200;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  @apply font-medium;
+}
+
+h1 { @apply text-2xl; }
+h2 { @apply text-xl; }
+h3 { @apply text-lg; }
