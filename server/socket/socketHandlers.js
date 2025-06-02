@@ -52,6 +52,8 @@ export const setupSocketHandlers = (io) => {
         if (chat && chat.participants.some(p => p.toString() === socket.user._id.toString())) {
           socket.join(chatId);
           console.log(`${socket.user.username} joined chat: ${chatId}`);
+          // Emit joined_chat event to confirm join
+          socket.emit('joined_chat', { chatId });
         } else {
           socket.emit('error', { message: 'Not authorized to join this chat' });
         }
@@ -91,6 +93,7 @@ export const setupSocketHandlers = (io) => {
 
         chat.messages.push(newMessage);
         await chat.save();
+        console.log('User message saved:', newMessage);
 
         const populatedChat = await Chat.findById(chatId)
           .populate('messages.sender', 'username avatar');

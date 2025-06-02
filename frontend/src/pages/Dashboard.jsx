@@ -27,6 +27,7 @@ const Dashboard = () => {
   const messagesEndRef = useRef(null);
   const lastMessageRef = useRef(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isJoiningChat, setIsJoiningChat] = useState(false); // NEW: track if waiting for join confirmation
 
   const { currentUser } = useAuth();
   const { socket, connected, joinChat, leaveChat, sendMessage, emitTyping } = useSocket();
@@ -58,12 +59,33 @@ const Dashboard = () => {
 
   }, [selectedChatId, connected, joinChat, leaveChat]);
 
+  // Ensure chatMessages is always in sync with selectedChatData.messages
+  useEffect(() => {
+    if (selectedChatData && Array.isArray(selectedChatData.messages)) {
+      setChatMessages(selectedChatData.messages);
+    }
+  }, [selectedChatData]);
+
   useEffect(() => {
     if (!socket || !selectedChatId) return;
 
     const handleNewMessage = (data) => {
       if (data.chatId === selectedChatId) {
-        setChatMessages(prev => [...prev, data.message]);
+        // Instead of fetching, directly append the new message (user or AI) to chatMessages
+        setChatMessages(prev => {
+          // Prevent duplicate messages (by _id or timestamp)
+          const exists = prev.some(
+            m => (m._id && data.message._id && m._id === data.message._id) ||
+              (!m._id && !data.message._id && m.timestamp === data.message.timestamp && m.content === data.message.content)
+          );
+          if (exists) return prev;
+          return [...prev, data.message];
+        });
+        // Hide typing indicator if AI message
+        if (data.message.isAI) {
+          setIsTyping(false);
+          setTypingUser('');
+        }
       }
     };
 
@@ -143,20 +165,39 @@ const Dashboard = () => {
     }
   };
 
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleJoinedChat = (data) => {
+      if (data && data.chatId) {
+        setSelectedChatId(data.chatId);
+        setIsJoiningChat(false);
+      }
+    };
+
+    socket.on('joined_chat', handleJoinedChat);
+    return () => {
+      socket.off('joined_chat', handleJoinedChat);
+    };
+  }, [socket]);
+
   const handleCreateNewChat = async () => {
     try {
       setIsLoading(true);
-
       const response = await axios.post(
         '/api/chat',
         { title: `Chat with AI` },
         { withCredentials: true }
       );
-
       if (response.data.success) {
         const newChat = response.data.data;
         setChats(prevChats => [newChat, ...prevChats].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-        setSelectedChatId(newChat._id);
+        // Join the chat room before setting selectedChatId
+        if (connected && joinChat) {
+          joinChat(newChat._id);
+          setIsJoiningChat(true); // Wait for socket confirmation
+        }
+        // Do NOT setSelectedChatId here; wait for joined_chat event
       } else {
         throw new Error(response.data.message || 'Failed to create new chat');
       }
@@ -193,29 +234,37 @@ const Dashboard = () => {
   const handleSendMessage = async (content) => {
     if (!selectedChatId) return;
     try {
-      // Send user message via socket
-      sendMessage(selectedChatId, content);
-      const newMessage = {
-        sender: currentUser._id,
-        content: content,
-        isAI: false,
-        timestamp: new Date(),
-        attachments: []
-      };
-      setChatMessages(prev => [...prev, newMessage]);
-
+      setIsTyping(true);
+      setTypingUser('AI');
+      // Optimistically add user message for immediate feedback
+      setChatMessages(prev => [
+        ...prev,
+        {
+          sender: { _id: currentUser?._id, username: currentUser?.username },
+          content,
+          isAI: false,
+          timestamp: new Date().toISOString(),
+          attachments: []
+        }
+      ]);
+      // Save user message to database via REST API (ensures persistence)
+      await axios.post(
+        `/api/chat/${selectedChatId}/messages`,
+        { content },
+        { withCredentials: true }
+      );
       // Call AI API for response
-      const aiRes = await axios.post(
+      await axios.post(
         '/api/ai/message',
         { chatId: selectedChatId, message: content },
         { withCredentials: true }
       );
-      if (aiRes.data && aiRes.data.success && aiRes.data.data) {
-        setChatMessages(prev => [...prev, aiRes.data.data]);
-      }
     } catch (err) {
       console.error('Error sending message:', err);
       setChatError('Failed to send message.');
+    } finally {
+      setIsTyping(false);
+      setTypingUser('');
     }
   };
 
@@ -447,7 +496,7 @@ const Dashboard = () => {
             )}
 
             {selectedChatId && !isChatLoading && !chatError && (
-              <ChatInput onSendMessage={handleSendMessage} chatId={selectedChatId} onTyping={(status) => emitTyping(selectedChatId, status)} />
+              <ChatInput onSendMessage={handleSendMessage} chatId={selectedChatId} onTyping={(status) => emitTyping(selectedChatId, status)} disabled={isJoiningChat} />
             )}
           </div>
         ) : (
