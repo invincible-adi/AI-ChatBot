@@ -1,11 +1,17 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import OpenAI from 'openai';
 import Chat from '../models/Chat.js';
 
 
 const openai = new OpenAI({
-  apiKey: "sk-806c03ae14d646b5a7a250005afcd1ae",
+  apiKey: process.env.DEEPSEEK_API_KEY,
   baseURL: 'https://api.deepseek.com/v1'
 });
+
+// Debug: Log environment variables to verify dotenv is working
+// console.log('DEEPSEEK_API_KEY:', process.env.DEEPSEEK_API_KEY);
 
 // Process message with AI and return response
 export const processMessage = async (req, res) => {

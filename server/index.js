@@ -24,6 +24,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 5000;
 
+// Debug log
+console.log('MONGODB_URI:', process.env.MONGODB_URI);
+
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
