@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Plus, AlertCircle, FileUp, Loader, Edit, Check, X, ChevronLeft, MessageSquare } from 'lucide-react';
+import { Plus, AlertCircle, FileUp, Loader, Edit, Check, X, ChevronLeft, MessageSquare, Menu } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useSocket } from '../contexts/SocketContext.jsx';
-import Header from '../components/Header.jsx';
-import ChatList from '../components/ChatList.jsx';
+import Sidebar from '../components/Sidebar.jsx';
 import ChatMessage from '../components/ChatMessage.jsx';
 import ChatInput from '../components/ChatInput.jsx';
 import FileUploadModal from '../components/FileUploadModal.jsx';
@@ -317,203 +316,113 @@ const Dashboard = () => {
     }
   };
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(prev => !prev);
-  };
+  const handleSidebarClose = () => setIsSidebarOpen(false);
+  const handleSidebarOpen = () => setIsSidebarOpen(true);
 
   return (
-    <div className="flex flex-col h-screen">
-      <Header
-        title={
-          selectedChatId && selectedChatData ? (
-            editingTitle ? (
-              <div className="flex items-center">
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  className="px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 mr-2 text-gray-900 dark:text-white bg-white dark:bg-gray-700"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleTitleUpdate();
-                    } else if (e.key === 'Escape') {
-                      setNewTitle(selectedChatData?.title || '');
-                      setEditingTitle(false);
-                    }
-                  }}
-                />
-                <button
-                  onClick={handleTitleUpdate}
-                  className="p-1 text-green-500 hover:text-green-600"
-                  aria-label="Save title"
-                >
-                  <Check size={18} />
-                </button>
-                <button
-                  onClick={() => {
-                    setNewTitle(selectedChatData?.title || '');
-                    setEditingTitle(false);
-                  }}
-                  className="p-1 text-red-500 hover:text-red-600 ml-1"
-                  aria-label="Cancel"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center">
-                {selectedChatData.title}
-                <button
-                  onClick={() => setEditingTitle(true)}
-                  className="ml-2 p-1 text-gray-500 hover:text-blue-500 transition-colors duration-200"
-                  aria-label="Edit title"
-                >
-                  <Edit size={14} />
-                </button>
-              </div>
-            )
-          ) : (
-            'AI Chat Dashboard'
-          )
-        }
-        showBackButton={!!selectedChatId}
-        onBackButtonClick={() => setSelectedChatId(null)}
-        showLogout={true}
+    <div className="flex h-screen bg-[#101014] text-white relative">
+      {/* Sidebar and overlay for mobile */}
+      <Sidebar
+        chats={chats}
+        selectedChatId={selectedChatId}
+        onSelectChat={(id) => {
+          setSelectedChatId(id);
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
+        }}
+        onNewChat={handleCreateNewChat}
+        isOpen={isSidebarOpen}
+        onClose={handleSidebarClose}
       />
-
-      <main className="flex-1 overflow-hidden flex">
-        <div className={`w-full md:w-80 lg:w-96 overflow-y-auto border-r dark:border-gray-700 flex flex-col bg-white dark:bg-gray-800 ${isSidebarOpen ? 'flex' : 'hidden'} ${selectedChatId && 'md:flex'}`}>
-          <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center flex-shrink-0">
-            <h3 className="text-lg font-medium text-gray-800 dark:text-gray-200">
-              Conversations
-            </h3>
-
-            <button
-              onClick={handleCreateNewChat}
-              className="flex items-center bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md shadow-sm transition-colors duration-200"
-              disabled={isLoading}
-              aria-label="Create new chat"
-            >
-              <Plus size={16} className="mr-1" />
-              New
-            </button>
-          </div>
-
-          {error && (
-            <div className="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-500 p-4 m-4 rounded-md animate-fade-in text-sm text-red-800 dark:text-red-300 flex-shrink-0">
-              <div className="flex items-start">
-                <AlertCircle size={16} className="text-red-500 mr-2 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-medium">Error loading chats:</p>
-                  <p className="mt-1 text-red-700 dark:text-red-400">{error}</p>
-                  <button
-                    onClick={fetchChats}
-                    className="text-sm text-red-600 dark:text-red-300 underline mt-2"
-                  >
-                    Try again
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto">
-            <ChatList
-              chats={chats}
-              onDeleteChat={handleDeleteChat}
-              isLoading={isLoading}
-              onSelectChat={(id) => { setSelectedChatId(id); setIsSidebarOpen(false); }}
-            />
-          </div>
-        </div>
-
-        {selectedChatId ? (
-          <div className="flex-1 overflow-hidden flex flex-col bg-gray-50 dark:bg-gray-900">
-            {isChatLoading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="flex flex-col items-center">
-                  <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <p className="mt-4 text-gray-600 dark:text-gray-400">Loading conversation...</p>
-                </div>
-              </div>
-            ) : chatError ? (
-              <div className="flex-1 flex items-center justify-center p-4">
-                <div className="text-center max-w-md">
-                  <AlertCircle className="mx-auto h-12 w-12 text-red-500" />
-                  <h3 className="mt-4 text-lg font-medium text-gray-900 dark:text-white">Error loading chat</h3>
-                  <p className="mt-2 text-gray-600 dark:text-gray-400">{chatError}</p>
-                  <button
-                    onClick={() => fetchChatDetails(selectedChatId)}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-200"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1 overflow-y-auto p-4">
-                <div className="max-w-3xl mx-auto space-y-4 message-list">
-                  {chatMessages.length === 0 ? (
-                    <div className="text-center py-10">
-                      <p className="text-gray-500 dark:text-gray-400">No messages yet</p>
-                      <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">
-                        Start the conversation by sending a message
-                      </p>
-                    </div>
-                  ) : (
-                    chatMessages.map((message, index) => (
-                      <ChatMessage
-                        key={index}
-                        message={message}
-                        isCurrentUser={message.sender && message.sender._id === currentUser?._id && !message.isAI}
-                        ref={index === chatMessages.length - 1 ? lastMessageRef : null}
-                      />
-                    ))
-                  )}
-
-                  {isTyping && (
-                    <div className="text-gray-500 text-sm animate-pulse">
-                      {typingUser} is typing...
-                    </div>
-                  )}
-
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
-            )}
-
-            {selectedChatId && !isChatLoading && !chatError && (
-              <div className="absolute right-6 bottom-20 z-20">
-                <button
-                  onClick={() => setIsFileModalOpen(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-full shadow-lg transition-colors duration-200"
-                  aria-label="Upload file"
-                >
-                  <FileUp size={20} />
-                </button>
-              </div>
-            )}
-
-            {selectedChatId && !isChatLoading && !chatError && (
-              <ChatInput onSendMessage={handleSendMessage} chatId={selectedChatId} onTyping={(status) => emitTyping(selectedChatId, status)} disabled={isJoiningChat} />
-            )}
-          </div>
-        ) : (
-          <div className="flex-1 overflow-hidden flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900">
-            <Loader size={48} className="text-blue-500 animate-spin" />
-            <p className="mt-4 text-gray-600 dark:text-gray-400">Loading chat...</p>
-          </div>
-        )}
-      </main>
-
-      {selectedChatId && (
-        <FileUploadModal
-          isOpen={isFileModalOpen}
-          onClose={() => setIsFileModalOpen(false)}
-          onFileAnalyzed={handleFileAnalyzed}
+      {/* Overlay for mobile */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-40 z-20 md:hidden"
+          onClick={handleSidebarClose}
         />
       )}
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col relative">
+        {/* Chat Header */}
+        <div className="h-16 flex items-center px-4 md:px-6 border-b border-gray-800 bg-[#18181b] shadow-sm z-10">
+          {/* Sidebar toggle for mobile */}
+          <button
+            className="md:hidden mr-3 text-gray-400 hover:text-white"
+            onClick={handleSidebarOpen}
+            aria-label="Open sidebar"
+          >
+            <Menu size={28} />
+          </button>
+          <div className="text-lg font-semibold truncate">
+            {selectedChatId && selectedChatData ? selectedChatData.title : 'New Chat'}
+          </div>
+        </div>
+        {/* Chat Messages */}
+        <div className="flex-1 overflow-y-auto p-6 bg-[#101014]">
+          <div className="max-w-2xl mx-auto space-y-4">
+            {isChatLoading ? (
+              <div className="flex items-center justify-center h-full py-20">
+                <Loader size={40} className="animate-spin text-blue-500" />
+              </div>
+            ) : chatError ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <AlertCircle size={40} className="text-red-500 mb-4" />
+                <div className="text-lg font-medium mb-2">Error loading chat</div>
+                <div className="text-gray-400 mb-4">{chatError}</div>
+                <button
+                  onClick={() => fetchChatDetails(selectedChatId)}
+                  className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition"
+                >
+                  Try Again
+                </button>
+              </div>
+            ) : chatMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                <div className="text-lg font-medium mb-2">No messages yet</div>
+                <div className="text-sm">Start the conversation by sending a message.</div>
+              </div>
+            ) : (
+              chatMessages.map((message, index) => (
+                <ChatMessage
+                  key={index}
+                  message={message}
+                  isCurrentUser={message.sender && message.sender._id === currentUser?._id && !message.isAI}
+                  ref={index === chatMessages.length - 1 ? lastMessageRef : null}
+                />
+              ))
+            )}
+            {isTyping && (
+              <div className="text-gray-500 text-sm animate-pulse">{typingUser} is typing...</div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+        {/* File Upload Button */}
+        {selectedChatId && !isChatLoading && !chatError && (
+          <div className="absolute right-8 bottom-28 z-20">
+            <button
+              onClick={() => setIsFileModalOpen(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-full shadow-lg transition-colors duration-200"
+              aria-label="Upload file"
+            >
+              <FileUp size={20} />
+            </button>
+          </div>
+        )}
+        {/* Chat Input */}
+        {selectedChatId && !isChatLoading && !chatError && (
+          <div className="bg-[#18181b] border-t border-gray-800 px-6 py-4">
+            <ChatInput onSendMessage={handleSendMessage} chatId={selectedChatId} onTyping={(status) => emitTyping(selectedChatId, status)} disabled={isJoiningChat} />
+          </div>
+        )}
+        {/* File Upload Modal */}
+        {selectedChatId && (
+          <FileUploadModal
+            isOpen={isFileModalOpen}
+            onClose={() => setIsFileModalOpen(false)}
+            onFileAnalyzed={handleFileAnalyzed}
+          />
+        )}
+      </div>
     </div>
   );
 };
