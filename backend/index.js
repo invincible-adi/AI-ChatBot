@@ -1,6 +1,4 @@
 import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -10,13 +8,10 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 
 // Routes
-import authRoutes from './routes/auth.js';
+import authRoutes from './routes/authRoutes.js';
 import chatRoutes from './routes/chat.js';
 import aiRoutes from './routes/ai.js';
 import uploadRoutes from './routes/upload.js';
-
-// Socket handlers
-import { setupSocketHandlers } from './socket/socketHandlers.js';
 
 // Config
 dotenv.config();
@@ -29,18 +24,6 @@ console.log('MONGODB_URI:', process.env.MONGODB_URI);
 
 // Initialize Express app
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: process.env.NODE_ENV === 'production'
-      ? process.env.FRONTEND_URL
-      : 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-    credentials: true
-  },
-  pingTimeout: 60000,
-  path: '/socket.io'
-});
 
 // Middleware
 app.use(cors({
@@ -64,9 +47,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/upload', uploadRoutes);
-
-// Socket.io setup
-setupSocketHandlers(io);
 
 // MongoDB connection with retry mechanism
 const connectDB = async (retries = 5, timeout = 5000) => {
@@ -102,7 +82,7 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   const isConnected = await connectDB();
   if (isConnected) {
-    server.listen(PORT, () => {
+    app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
   } else {

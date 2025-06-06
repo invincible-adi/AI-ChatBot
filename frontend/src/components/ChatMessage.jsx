@@ -1,105 +1,77 @@
-import React, { forwardRef } from 'react';
-import { FileText } from 'lucide-react';
+import React from 'react';
+import { Bot, User } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext.jsx';
 
-const ChatMessage = forwardRef(({ message, isCurrentUser }, ref) => {
-  const { content, isAI, timestamp, sender, attachments = [] } = message;
+const ChatMessage = ({ message }) => {
+  const { currentUser } = useAuth();
+  // Determine if the message is from the current user
+  const isUser = message.isAI ? false : message.sender?._id === currentUser?._id;
 
-  const formattedTime = new Date(timestamp).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  // Defensive: fallback for missing timestamp
+  let timeString = '';
+  try {
+    timeString = message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : '';
+  } catch {
+    timeString = '';
+  }
 
-  // Parse markdown-style links and code blocks
-  const renderContent = () => {
-    let parts = content.split(/(```[^`]+```|\[.*?\]\(.*?\))/g);
-
-    return parts.map((part, index) => {
-      if (part.startsWith('```') && part.endsWith('```')) {
-        // Code block
-        const code = part.slice(3, -3);
-        return (
-          <pre key={index} className="bg-gray-800 text-gray-200 p-3 rounded-md my-2 overflow-x-auto">
-            <code>{code}</code>
-          </pre>
-        );
-      } else if (part.match(/\[.*?\]\(.*?\)/)) {
-        // Link
-        const [_, text, url] = part.match(/\[(.*?)\]\((.*?)\)/);
-        return (
-          <a
-            key={index}
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:text-blue-600 underline"
-          >
-            {text}
-          </a>
-        );
-      }
-      return part;
-    });
-  };
-
-  const renderAttachments = () => {
-    if (!attachments || attachments.length === 0) return null;
-
-    return (
-      <div className="mt-2 space-y-2">
-        {attachments.map((attachment, index) => (
-          <div
-            key={index}
-            className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 rounded-lg p-2 text-sm"
-          >
-            <FileText size={16} className="text-blue-500" />
-            <a
-              href={attachment.path}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-500 hover:text-blue-600 truncate"
-            >
-              {attachment.filename}
-            </a>
-          </div>
-        ))}
-      </div>
-    );
-  };
+  // Defensive: fallback for missing attachments
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
 
   return (
-    <div
-      ref={ref}
-      className={`flex flex-col ${isAI
-        ? 'items-start' // AI message on left
-        : 'items-end'   // User message on right
-        } mb-4 animate-fade-in`}
-    >
-      <div
-        className={`
-          max-w-[80%] rounded-2xl px-4 py-2 shadow-sm
-          ${isAI
-            ? 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-br-none'
-            : 'bg-blue-600 text-white rounded-bl-none'}
-        `}
-      >
-        {/* Show sender name: current user for user messages, "AI" for AI */}
-        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-          {isAI
-            ? "AI"
-            : (sender && sender.username) ? sender.username : "You"}
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+      <div className={`flex ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start max-w-[80%]`}>
+        <div className={`flex-shrink-0 ${isUser ? 'ml-2' : 'mr-2'}`}>
+          {isUser ? (
+            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+              <User className="w-5 h-5 text-white" />
+            </div>
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center">
+              <Bot className="w-5 h-5 text-white" />
+            </div>
+          )}
         </div>
-        <div className="prose dark:prose-invert max-w-none">
-          {renderContent()}
-        </div>
-        {renderAttachments()}
-        <div className="text-xs opacity-70 text-right mt-1">
-          {formattedTime}
+        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+          <div className={`px-4 py-2 rounded-lg ${isUser
+            ? 'bg-blue-600 text-white rounded-tr-none'
+            : 'bg-gray-700 text-gray-100 rounded-tl-none'
+            }`}>
+            {message.content}
+          </div>
+          {attachments.length > 0 && (
+            <div className={`mt-2 ${isUser ? 'text-right' : 'text-left'}`}>
+              {attachments.map((attachment, index) => {
+                // Defensive: fallback for missing filename
+                const filename = attachment.filename || 'file';
+                // Show image preview if image, otherwise show download link
+                const isImage = attachment.mimetype && attachment.mimetype.startsWith('image/');
+                const fileUrl = attachment.filename ? `/uploads/${attachment.filename}` : undefined;
+                // Use a unique key: prefer attachment._id, else filename+index
+                const key = attachment._id || (attachment.filename ? attachment.filename + '-' + index : index);
+                return (
+                  <div key={key} className="text-sm text-gray-400">
+                    {fileUrl ? (
+                      isImage ? (
+                        <img src={fileUrl} alt={filename} className="max-h-40 rounded mb-1 border border-gray-600" />
+                      ) : (
+                        <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-400">{filename}</a>
+                      )
+                    ) : (
+                      filename
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className={`text-xs text-gray-500 mt-1 ${isUser ? 'text-right' : 'text-left'}`}>
+            {timeString}
+          </div>
         </div>
       </div>
     </div>
   );
-});
-
-ChatMessage.displayName = 'ChatMessage';
+};
 
 export default ChatMessage;

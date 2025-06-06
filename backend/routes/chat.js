@@ -1,11 +1,12 @@
 import express from 'express';
-import { 
-  getUserChats, 
-  getChatById, 
-  createChat, 
-  addMessage, 
+import {
+  getUserChats,
+  getChatById,
+  createChat,
+  addMessage,
   deleteChat,
-  updateChatTitle
+  updateChatTitle,
+  getNewMessages
 } from '../controllers/chatController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -23,6 +24,8 @@ router.route('/:id')
   .delete(deleteChat)
   .patch(updateChatTitle);
 
-router.post('/:id/messages', addMessage);
+router.route('/:id/messages')
+  .post(addMessage)
+  .get(getNewMessages);
 
 export default router;

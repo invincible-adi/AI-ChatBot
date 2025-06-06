@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Plus, AlertCircle, FileUp, Loader, Edit, Check, X, ChevronLeft, MessageSquare, Menu } from 'lucide-react';
+import { Plus, AlertCircle, Loader, Edit, Check, X, ChevronLeft, MessageSquare, Menu, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext.jsx';
-import { useSocket } from '../contexts/SocketContext.jsx';
 import Sidebar from '../components/Sidebar.jsx';
 import ChatMessage from '../components/ChatMessage.jsx';
 import ChatInput from '../components/ChatInput.jsx';
-import FileUploadModal from '../components/FileUploadModal.jsx';
 
 const Dashboard = () => {
   const [chats, setChats] = useState([]);
@@ -15,110 +13,111 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [selectedChatData, setSelectedChatData] = useState(null);
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessagesMap, setChatMessagesMap] = useState({}); // { chatId: [messages] }
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatError, setChatError] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [typingUser, setTypingUser] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [isFileModalOpen, setIsFileModalOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const lastMessageRef = useRef(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isJoiningChat, setIsJoiningChat] = useState(false); // NEW: track if waiting for join confirmation
+  const [isJoiningChat, setIsJoiningChat] = useState(false);
+  const pollingIntervalRef = useRef(null);
+  const processedMessageIds = useRef(new Set());
 
   const { currentUser } = useAuth();
-  const { socket, connected, joinChat, leaveChat, sendMessage, emitTyping } = useSocket();
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchChats();
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, []);
+
+  // Automatically open a new chat if there are no chats and no chat is selected
+  useEffect(() => {
+    if (!isLoading && chats.length === 0 && !selectedChatId) {
+      handleCreateNewChat();
+    }
+  }, [isLoading, chats.length, selectedChatId]);
 
   useEffect(() => {
     if (selectedChatId) {
       fetchChatDetails(selectedChatId);
-      if (connected) {
-        joinChat(selectedChatId);
-      }
+      // Start polling for new messages
+      startPolling(selectedChatId);
     } else {
       setSelectedChatData(null);
-      setChatMessages([]);
-      setNewTitle('');
-      setChatError(null);
+      // Stop polling when no chat is selected
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
     }
 
     const prevSelectedChatId = selectedChatId;
     return () => {
-      if (connected && prevSelectedChatId) {
-        leaveChat(prevSelectedChatId);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
       }
     };
+  }, [selectedChatId]);
 
-  }, [selectedChatId, connected, joinChat, leaveChat]);
-
-  // Ensure chatMessages is always in sync with selectedChatData.messages
-  useEffect(() => {
-    if (selectedChatData && Array.isArray(selectedChatData.messages)) {
-      setChatMessages(selectedChatData.messages);
-    }
-  }, [selectedChatData]);
-
-  useEffect(() => {
-    if (!socket || !selectedChatId) return;
-
-    const handleNewMessage = (data) => {
-      if (data.chatId === selectedChatId) {
-        // Instead of fetching, directly append the new message (user or AI) to chatMessages
-        setChatMessages(prev => {
-          // Prevent duplicate messages (by _id or timestamp)
-          const exists = prev.some(
-            m => (m._id && data.message._id && m._id === data.message._id) ||
-              (!m._id && !data.message._id && m.timestamp === data.message.timestamp && m.content === data.message.content)
-          );
-          if (exists) return prev;
-          return [...prev, data.message];
-        });
-        // Hide typing indicator if AI message
-        if (data.message.isAI) {
-          setIsTyping(false);
-          setTypingUser('');
-        }
-      }
-    };
-
-    const handleUserTyping = (data) => {
-      if (data.chatId === selectedChatId && data.userId !== currentUser?._id) {
-        setIsTyping(data.isTyping);
-        setTypingUser(data.username);
-      }
-    };
-
-    const handleChatUpdated = (data) => {
-      setChats(prevChats => prevChats.map(chat =>
-        chat._id === data.chatId ? { ...chat, lastMessage: data.lastMessage, updatedAt: new Date() } : chat
-      ).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
-    };
-
-    socket.on('new_message', handleNewMessage);
-    socket.on('user_typing', handleUserTyping);
-    socket.on('chat_updated', handleChatUpdated);
-
-    return () => {
-      socket.off('new_message', handleNewMessage);
-      socket.off('user_typing', handleUserTyping);
-      socket.off('chat_updated', handleChatUpdated);
-    };
-  }, [socket, selectedChatId, currentUser]);
-
+  // In polling, update chatMessagesMap for the selected chat
   useEffect(() => {
     if (lastMessageRef.current) {
       lastMessageRef.current.scrollIntoView({ behavior: 'smooth' });
     } else if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [chatMessages]);
+  }, [chatMessagesMap[selectedChatId]]);
+
+  const startPolling = (chatId) => {
+    // Clear any existing polling interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    // Start new polling interval (every 3 seconds)
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await axios.get(
+          `/api/chat/${chatId}`,
+          { withCredentials: true }
+        );
+
+        if (response.data.success) {
+          const allMessages = response.data.data.messages;
+          const newMessages = allMessages.filter(
+            msg => !processedMessageIds.current.has(msg._id)
+          );
+
+          if (newMessages.length > 0) {
+            setChatMessagesMap(prev => ({
+              ...prev,
+              [chatId]: [...(prev[chatId] || []), ...newMessages]
+            }));
+
+            newMessages.forEach(msg => processedMessageIds.current.add(msg._id));
+            setIsTyping(false);
+          }
+        }
+      } catch (err) {
+        console.error('Error polling for new messages:', err);
+      }
+    }, 3000);
+  };
+
+  // Reset processed message IDs when changing chats
+  useEffect(() => {
+    if (selectedChatId) {
+      processedMessageIds.current.clear();
+    }
+  }, [selectedChatId]);
 
   const fetchChats = async () => {
     try {
@@ -150,7 +149,12 @@ const Dashboard = () => {
       const response = await axios.get(`/api/chat/${id}`, { withCredentials: true });
       if (response.data.success) {
         setSelectedChatData(response.data.data);
-        setChatMessages(response.data.data.messages);
+        if (response.data.data.messages.length > 0) {
+          setChatMessagesMap(prev => ({
+            ...prev,
+            [id]: response.data.data.messages
+          }));
+        }
         setNewTitle(response.data.data.title);
       } else {
         throw new Error(response.data.message || 'Failed to fetch chat details');
@@ -164,39 +168,31 @@ const Dashboard = () => {
     }
   };
 
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleJoinedChat = (data) => {
-      if (data && data.chatId) {
-        setSelectedChatId(data.chatId);
-        setIsJoiningChat(false);
-      }
-    };
-
-    socket.on('joined_chat', handleJoinedChat);
-    return () => {
-      socket.off('joined_chat', handleJoinedChat);
-    };
-  }, [socket]);
-
   const handleCreateNewChat = async () => {
     try {
       setIsLoading(true);
       const response = await axios.post(
         '/api/chat',
-        { title: `Chat with AI` },
+        { title: 'New Chat' },
         { withCredentials: true }
       );
       if (response.data.success) {
         const newChat = response.data.data;
         setChats(prevChats => [newChat, ...prevChats].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-        // Join the chat room before setting selectedChatId
-        if (connected && joinChat) {
-          joinChat(newChat._id);
-          setIsJoiningChat(true); // Wait for socket confirmation
-        }
-        // Do NOT setSelectedChatId here; wait for joined_chat event
+        setSelectedChatId(newChat._id);
+        const greetingMessage = {
+          content: "Hello! I'm your AI assistant. How can I help you today?",
+          isAI: true,
+          timestamp: new Date().toISOString(),
+          sender: { username: 'AI' },
+          attachments: []
+        };
+        setChatMessagesMap(prev => ({
+          ...prev,
+          [newChat._id]: [greetingMessage]
+        }));
+        setSelectedChatData({ ...newChat, messages: [greetingMessage] });
+        setNewTitle(newChat.title || 'New Chat');
       } else {
         throw new Error(response.data.message || 'Failed to create new chat');
       }
@@ -218,8 +214,19 @@ const Dashboard = () => {
 
       if (response.data.success) {
         setChats(prevChats => prevChats.filter(chat => chat._id !== chatId));
+        setChatMessagesMap(prev => {
+          const newMap = { ...prev };
+          delete newMap[chatId];
+          return newMap;
+        });
         if (selectedChatId === chatId) {
           setSelectedChatId(null);
+          setSelectedChatData(null);
+          setNewTitle('');
+          setChatError(null);
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
         }
       } else {
         throw new Error(response.data.message || 'Failed to delete chat');
@@ -235,29 +242,60 @@ const Dashboard = () => {
     try {
       setIsTyping(true);
       setTypingUser('AI');
-      // Optimistically add user message for immediate feedback
-      setChatMessages(prev => [
-        ...prev,
-        {
-          sender: { _id: currentUser?._id, username: currentUser?.username },
-          content,
-          isAI: false,
-          timestamp: new Date().toISOString(),
-          attachments: []
-        }
-      ]);
-      // Save user message to database via REST API (ensures persistence)
-      await axios.post(
+
+      // First, save user message to database
+      const userMessageResponse = await axios.post(
         `/api/chat/${selectedChatId}/messages`,
         { content },
         { withCredentials: true }
       );
-      // Call AI API for response
-      await axios.post(
-        '/api/ai/message',
+
+      if (userMessageResponse.data.success) {
+        const userMessage = userMessageResponse.data.data;
+        setChatMessagesMap(prev => ({
+          ...prev,
+          [selectedChatId]: [...(prev[selectedChatId] || []), userMessage]
+        }));
+        processedMessageIds.current.add(userMessage._id);
+
+        // If this is the first user message, update the chat title
+        if (!chatMessagesMap[selectedChatId] || chatMessagesMap[selectedChatId].length === 0) {
+          const newTitle = content.length > 30 ? content.substring(0, 30) + '...' : content;
+          try {
+            const titleResponse = await axios.patch(
+              `/api/chat/${selectedChatId}`,
+              { title: newTitle },
+              { withCredentials: true }
+            );
+
+            if (titleResponse.data.success) {
+              setSelectedChatData(prev => ({ ...prev, title: newTitle }));
+              setChats(prevChats => prevChats.map(chat =>
+                chat._id === selectedChatId ? { ...chat, title: newTitle } : chat
+              ));
+              setNewTitle(newTitle);
+            }
+          } catch (err) {
+            console.error('Error updating chat title:', err);
+          }
+        }
+      }
+
+      // Then call AI API for response
+      const aiResponse = await axios.post(
+        `/api/ai/message`,
         { chatId: selectedChatId, message: content },
         { withCredentials: true }
       );
+
+      if (aiResponse.data.success) {
+        const aiMessage = aiResponse.data.data;
+        setChatMessagesMap(prev => ({
+          ...prev,
+          [selectedChatId]: [...(prev[selectedChatId] || []), aiMessage]
+        }));
+        processedMessageIds.current.add(aiMessage._id);
+      }
     } catch (err) {
       console.error('Error sending message:', err);
       setChatError('Failed to send message.');
@@ -267,161 +305,274 @@ const Dashboard = () => {
     }
   };
 
-  const handleFileAnalyzed = async (fileData) => {
-    if (!selectedChatId) return;
-
-    try {
-      const fileMessage = `I've uploaded a file: ${fileData.filename}`;
-      sendMessage(selectedChatId, fileMessage);
-
-      if (fileData.analysis) {
-        const analysisMessage = `**File Analysis**:\n\n${fileData.analysis}`;
-      }
-    } catch (err) {
-      console.error('Error processing file:', err);
-      setChatError('Failed to process file analysis.');
-    } finally {
-      setIsFileModalOpen(false);
+  // Add handleSendFile to handle file upload and send as chat message
+  const handleSendFile = async (file, messageText) => {
+    if (!selectedChatId) {
+      setChatError('Please select or create a chat first');
+      return;
     }
-  };
 
-  const handleTitleUpdate = async () => {
-    if (!newTitle.trim() || newTitle === selectedChatData?.title || !selectedChatId) {
-      setNewTitle(selectedChatData?.title || '');
-      setEditingTitle(false);
+    if (!file) {
+      setChatError('No file selected');
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+    if (file.size > maxSize) {
+      setChatError('File size exceeds 10MB limit');
       return;
     }
 
     try {
-      const response = await axios.patch(
-        `/api/chat/${selectedChatId}`,
-        { title: newTitle },
+      setIsTyping(true);
+      setTypingUser('AI');
+      setChatError(null);
+
+      // 1. Upload the file
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('message', messageText || ''); // Include the message text with the file
+
+      const uploadRes = await axios.post(`/api/upload`, formData, {
+        withCredentials: true,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log(`Upload Progress: ${percentCompleted}%`);
+        },
+      });
+
+      if (uploadRes.data.success) {
+        const fileData = uploadRes.data.data;
+        // 2. Send the chat message with the file attachment
+        const msgRes = await axios.post(
+          `/api/chat/${selectedChatId}/messages`,
+          {
+            content: messageText || '',
+            attachments: [fileData],
+          },
+          { withCredentials: true }
+        );
+
+        if (msgRes.data.success) {
+          const userMessage = msgRes.data.data;
+          setChatMessagesMap(prev => ({
+            ...prev,
+            [selectedChatId]: [...(prev[selectedChatId] || []), userMessage]
+          }));
+          processedMessageIds.current.add(userMessage._id);
+
+          // Update chat title if this is the first message
+          if (!chatMessagesMap[selectedChatId] || chatMessagesMap[selectedChatId].length === 0) {
+            const newTitle = messageText || `File: ${file.name}`;
+            const titleToUse = newTitle.length > 30 ? newTitle.substring(0, 30) + '...' : newTitle;
+            try {
+              const titleResponse = await axios.patch(
+                `/api/chat/${selectedChatId}`,
+                { title: titleToUse },
+                { withCredentials: true }
+              );
+
+              if (titleResponse.data.success) {
+                setSelectedChatData(prev => ({ ...prev, title: titleToUse }));
+                setChats(prevChats => prevChats.map(chat =>
+                  chat._id === selectedChatId ? { ...chat, title: titleToUse } : chat
+                ));
+                setNewTitle(titleToUse);
+              }
+            } catch (err) {
+              console.error('Error updating chat title:', err);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error sending file:', err);
+      setChatError(err.response?.data?.message || 'Failed to send file. Please try again.');
+    } finally {
+      setIsTyping(false);
+      setTypingUser('');
+    }
+  };
+
+  const handleToggleSidebar = () => {
+    setIsSidebarOpen(prev => !prev);
+  };
+
+  const handleJoinChat = async (chatId) => {
+    setIsJoiningChat(true);
+    try {
+      const response = await axios.post(
+        `/api/chat/join`,
+        { chatId },
+        { withCredentials: true }
+      );
+      if (response.data.success) {
+        setSelectedChatId(chatId);
+        setChats(prevChats => {
+          const chatToMove = prevChats.find(chat => chat._id === chatId);
+          const otherChats = prevChats.filter(chat => chat._id !== chatId);
+          return [chatToMove, ...otherChats];
+        });
+      } else {
+        throw new Error(response.data.message || 'Failed to join chat');
+      }
+    } catch (err) {
+      console.error('Error joining chat:', err);
+      setError(err.message || 'An error occurred while joining the chat');
+    } finally {
+      setIsJoiningChat(false);
+    }
+  };
+
+  const handleLeaveChat = async (chatId) => {
+    if (!window.confirm('Are you sure you want to leave this conversation?')) {
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `/api/chat/leave`,
+        { chatId },
         { withCredentials: true }
       );
 
       if (response.data.success) {
-        setSelectedChatData(prev => ({ ...prev, title: newTitle }));
-        setChats(prevChats => prevChats.map(chat =>
-          chat._id === selectedChatId ? { ...chat, title: newTitle } : chat
-        ));
-        setEditingTitle(false);
+        setChats(prevChats => prevChats.filter(chat => chat._id !== chatId));
+        if (selectedChatId === chatId) {
+          setSelectedChatId(null);
+          setSelectedChatData(null);
+          setNewTitle('');
+          setChatError(null);
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+        }
       } else {
-        throw new Error(response.data.message || 'Failed to update title');
+        throw new Error(response.data.message || 'Failed to leave chat');
       }
     } catch (err) {
-      console.error('Error updating title:', err);
-      setChatError('Failed to update chat title');
-      setNewTitle(selectedChatData?.title || '');
-      setEditingTitle(false);
+      console.error('Error leaving chat:', err);
+      setError(err.message || 'An error occurred while leaving the chat');
     }
   };
 
-  const handleSidebarClose = () => setIsSidebarOpen(false);
-  const handleSidebarOpen = () => setIsSidebarOpen(true);
+  const handleUpdateChatTitle = async (title) => {
+    if (!selectedChatId) return;
+    try {
+      const response = await axios.patch(
+        `/api/chat/${selectedChatId}`,
+        { title },
+        { withCredentials: true }
+      );
+
+      if (response.data.success) {
+        setNewTitle(title);
+        setSelectedChatData(prev => ({ ...prev, title }));
+        setChats(prevChats => prevChats.map(chat =>
+          chat._id === selectedChatId ? { ...chat, title } : chat
+        ));
+      } else {
+        throw new Error(response.data.message || 'Failed to update chat title');
+      }
+    } catch (err) {
+      console.error('Error updating chat title:', err);
+      setError(err.message || 'An error occurred while updating the chat title');
+    }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    fetchChats();
+  };
 
   return (
-    <div className="flex h-screen bg-[#101014] text-white relative">
-      {/* Sidebar and overlay for mobile */}
+    <div className="flex h-screen bg-[#181A20]">
       <Sidebar
         chats={chats}
         selectedChatId={selectedChatId}
-        onSelectChat={(id) => {
-          setSelectedChatId(id);
-          if (window.innerWidth < 768) setIsSidebarOpen(false);
-        }}
-        onNewChat={handleCreateNewChat}
+        onSelectChat={setSelectedChatId}
+        onCreateChat={handleCreateNewChat}
+        onDeleteChat={handleDeleteChat}
+        isLoading={isLoading}
+        error={error}
+        onRetry={handleRetry}
+        isJoiningChat={isJoiningChat}
+        onJoinChat={handleJoinChat}
+        onLeaveChat={handleLeaveChat}
         isOpen={isSidebarOpen}
-        onClose={handleSidebarClose}
+        onClose={() => setIsSidebarOpen(false)}
       />
-      {/* Overlay for mobile */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-40 z-20 md:hidden"
-          onClick={handleSidebarClose}
-        />
-      )}
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col relative">
-        {/* Chat Header */}
-        <div className="h-16 flex items-center px-4 md:px-6 border-b border-gray-800 bg-[#18181b] shadow-sm z-10">
-          {/* Sidebar toggle for mobile */}
-          <button
-            className="md:hidden mr-3 text-gray-400 hover:text-white"
-            onClick={handleSidebarOpen}
-            aria-label="Open sidebar"
-          >
-            <Menu size={28} />
-          </button>
-          <div className="text-lg font-semibold truncate">
-            {selectedChatId && selectedChatData ? selectedChatData.title : 'New Chat'}
+      <div className="flex-1 flex flex-col h-full bg-[#22232B]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#23242C] bg-[#181A20] shadow-sm">
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleToggleSidebar}
+              className="p-2 hover:bg-[#23242C] rounded-lg lg:hidden text-gray-400"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-bold text-white tracking-tight">
+              {selectedChatData?.title || 'New Chat'}
+            </h2>
           </div>
+          {/* Add more header actions if needed */}
         </div>
-        {/* Chat Messages */}
-        <div className="flex-1 overflow-y-auto p-6 bg-[#101014]">
-          <div className="max-w-2xl mx-auto space-y-4">
-            {isChatLoading ? (
-              <div className="flex items-center justify-center h-full py-20">
-                <Loader size={40} className="animate-spin text-blue-500" />
-              </div>
-            ) : chatError ? (
-              <div className="flex flex-col items-center justify-center py-20">
-                <AlertCircle size={40} className="text-red-500 mb-4" />
-                <div className="text-lg font-medium mb-2">Error loading chat</div>
-                <div className="text-gray-400 mb-4">{chatError}</div>
-                <button
-                  onClick={() => fetchChatDetails(selectedChatId)}
-                  className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-700 transition"
-                >
-                  Try Again
-                </button>
-              </div>
-            ) : chatMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                <div className="text-lg font-medium mb-2">No messages yet</div>
-                <div className="text-sm">Start the conversation by sending a message.</div>
-              </div>
-            ) : (
-              chatMessages.map((message, index) => (
+        {/* Chat messages */}
+        <div className="flex-1 overflow-y-auto px-0 sm:px-8 py-6 space-y-4 bg-[#22232B]">
+          {isLoading && <Loader className="mx-auto text-gray-400" />}
+          {chatError && (
+            <div className="text-red-500 text-center">
+              <AlertCircle className="inline-block mr-1" />
+              {chatError}
+            </div>
+          )}
+          {(chatMessagesMap[selectedChatId] || []).length === 0 && !isLoading && (
+            <div className="text-center text-gray-500 py-4">
+              No messages yet. Type a message below to start the conversation.
+            </div>
+          )}
+          <div className="flex flex-col gap-4">
+            {/* Deduplicate messages by _id before rendering */}
+            {Array.from(
+              new Map((chatMessagesMap[selectedChatId] || []).map(msg => [msg._id, msg])).values()
+            ).map((msg, index) => (
+              <div
+                key={msg._id || `${index}-${msg.timestamp || ''}`}
+                className={
+                  msg.isAI
+                    ? 'self-start max-w-[80%] bg-[#23242C] text-gray-100 rounded-2xl rounded-bl-none px-5 py-3 shadow-md border border-[#23242C]'
+                    : 'self-end max-w-[80%] bg-[#2A2B32] text-white rounded-2xl rounded-br-none px-5 py-3 shadow-md border border-[#35363C]'
+                }
+                style={{ marginLeft: msg.isAI ? 0 : 'auto', marginRight: msg.isAI ? 'auto' : 0 }}
+              >
                 <ChatMessage
-                  key={index}
-                  message={message}
-                  isCurrentUser={message.sender && message.sender._id === currentUser?._id && !message.isAI}
-                  ref={index === chatMessages.length - 1 ? lastMessageRef : null}
+                  message={msg}
+                  isLast={index === (chatMessagesMap[selectedChatId] || []).length - 1}
                 />
-              ))
-            )}
+              </div>
+            ))}
             {isTyping && (
-              <div className="text-gray-500 text-sm animate-pulse">{typingUser} is typing...</div>
+              <div className="flex items-center gap-2 text-gray-400 px-4 py-2 bg-[#23242C] rounded-lg animate-pulse self-start max-w-[80%]">
+                <Loader className="w-4 h-4 animate-spin" />
+                <span>AI's processing...</span>
+              </div>
             )}
             <div ref={messagesEndRef} />
           </div>
         </div>
-        {/* File Upload Button */}
-        {selectedChatId && !isChatLoading && !chatError && (
-          <div className="absolute right-8 bottom-28 z-20">
-            <button
-              onClick={() => setIsFileModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-full shadow-lg transition-colors duration-200"
-              aria-label="Upload file"
-            >
-              <FileUp size={20} />
-            </button>
-          </div>
-        )}
-        {/* Chat Input */}
-        {selectedChatId && !isChatLoading && !chatError && (
-          <div className="bg-[#18181b] border-t border-gray-800 px-6 py-4">
-            <ChatInput onSendMessage={handleSendMessage} chatId={selectedChatId} onTyping={(status) => emitTyping(selectedChatId, status)} disabled={isJoiningChat} />
-          </div>
-        )}
-        {/* File Upload Modal */}
-        {selectedChatId && (
-          <FileUploadModal
-            isOpen={isFileModalOpen}
-            onClose={() => setIsFileModalOpen(false)}
-            onFileAnalyzed={handleFileAnalyzed}
+        {/* Chat input */}
+        <div className="px-0 sm:px-8 py-6 bg-[#181A20] border-t border-[#23242C]">
+          <ChatInput
+            onSendMessage={handleSendMessage}
+            onSendFile={handleSendFile}
+            disabled={isChatLoading}
           />
-        )}
+        </div>
       </div>
     </div>
   );

@@ -79,22 +79,26 @@ export const processMessage = async (req, res) => {
       // Get AI response
       const aiResponse = response.choices[0].message.content;
 
-      // Add AI response to chat
+      // Add AI response to chat using the chat model's addMessage method
       const aiMessage = {
-        sender: undefined, // Use undefined, not null
         content: aiResponse,
         isAI: true,
         timestamp: new Date()
       };
 
-      chat.messages.push(aiMessage);
-      await chat.save();
+      await chat.addMessage(aiMessage);
 
-      // Return sender as { username: "AI" } for frontend display
+      // Get the updated chat to get the properly structured message
+      const updatedChat = await Chat.findById(chatId)
+        .populate('messages.sender', 'username avatar');
+
+      const addedMessage = updatedChat.messages[updatedChat.messages.length - 1];
+
+      // Return properly structured message
       res.status(200).json({
         success: true,
         data: {
-          ...aiMessage,
+          ...addedMessage.toObject(),
           sender: { username: "AI" }
         }
       });
@@ -103,19 +107,23 @@ export const processMessage = async (req, res) => {
 
       // Send a fallback response
       const fallbackMessage = {
-        sender: undefined,
         content: "I apologize, but I'm having trouble processing your request right now. Please try again in a moment.",
         isAI: true,
         timestamp: new Date()
       };
 
-      chat.messages.push(fallbackMessage);
-      await chat.save();
+      await chat.addMessage(fallbackMessage);
+
+      // Get the updated chat to get the properly structured message
+      const updatedChat = await Chat.findById(chatId)
+        .populate('messages.sender', 'username avatar');
+
+      const addedMessage = updatedChat.messages[updatedChat.messages.length - 1];
 
       res.status(200).json({
         success: true,
         data: {
-          ...fallbackMessage,
+          ...addedMessage.toObject(),
           sender: { username: "AI" }
         },
         warning: 'Used fallback response due to AI service error'

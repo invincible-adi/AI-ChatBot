@@ -101,20 +101,20 @@ const FileUploadModal = ({ isOpen, onClose, onFileAnalyzed }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md overflow-hidden transition-all duration-200">
-        <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-medium">Upload File</h2>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 animate-fade-in">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md sm:max-w-md overflow-hidden transition-all duration-200 mx-2 sm:mx-0">
+        <div className="flex justify-between items-center p-3 sm:p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-base sm:text-lg font-medium">Upload File</h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-full p-1.5"
             aria-label="Close"
           >
             <X size={20} />
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <div className="flex flex-col items-center">
             {getFileIcon()}
             <input
@@ -126,17 +126,17 @@ const FileUploadModal = ({ isOpen, onClose, onFileAnalyzed }) => {
             />
             <div className="mt-4 w-full">
               {file ? (
-                <p className="text-sm text-gray-800 dark:text-gray-200 font-medium text-center">
+                <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-200 font-medium text-center break-all">
                   {file.name} ({(file.size / 1024).toFixed(1)} KB)
                 </p>
               ) : (
-                <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 text-center">
                   Select a file to upload
                 </p>
               )}
             </div>
             <textarea
-              className="w-full mt-4 rounded border border-gray-300 dark:border-gray-600 px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="w-full mt-4 rounded border border-gray-300 dark:border-gray-600 px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs sm:text-sm"
               placeholder="Add a message (optional)..."
               value={message}
               onChange={e => setMessage(e.target.value)}
@@ -148,15 +148,15 @@ const FileUploadModal = ({ isOpen, onClose, onFileAnalyzed }) => {
           </div>
 
           {uploadError && (
-            <div className="mt-3 text-red-500 text-sm text-center">
+            <div className="mt-3 text-red-500 text-xs sm:text-sm text-center">
               {uploadError}
             </div>
           )}
 
-          <div className="mt-6 flex justify-end">
+          <div className="mt-6 flex flex-col sm:flex-row justify-end gap-2 sm:gap-0">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 mr-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200"
               disabled={isUploading || isAnalyzing}
             >
               Cancel
@@ -164,7 +164,7 @@ const FileUploadModal = ({ isOpen, onClose, onFileAnalyzed }) => {
 
             <button
               onClick={handleUpload}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-colors duration-200 flex items-center"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-colors duration-200 flex items-center justify-center"
               disabled={!file || isUploading || isAnalyzing}
             >
               {isUploading || isAnalyzing ? (

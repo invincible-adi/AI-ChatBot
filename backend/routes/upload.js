@@ -17,12 +17,12 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Configure storage
 const storage = multer.diskStorage({
-  destination: function(req, file, cb) {
+  destination: function (req, file, cb) {
     cb(null, uploadsDir);
   },
-  filename: function(req, file, cb) {
+  filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
 
@@ -30,12 +30,12 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
   // Accept images, documents, text files
   const allowedTypes = [
-    'image/jpeg', 'image/png', 'image/gif', 
-    'application/pdf', 'application/msword', 
+    'image/jpeg', 'image/png', 'image/gif',
+    'application/pdf', 'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'text/plain', 'text/csv'
   ];
-  
+
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
@@ -44,7 +44,7 @@ const fileFilter = (req, file, cb) => {
 };
 
 // Initialize upload
-const upload = multer({ 
+const upload = multer({
   storage,
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
@@ -54,7 +54,7 @@ const upload = multer({
 router.use(protect);
 
 // File upload endpoint
-router.post('/', upload.single('file'), (req, res) => {
+router.post('/', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -63,19 +63,22 @@ router.post('/', upload.single('file'), (req, res) => {
       });
     }
 
-    res.status(200).json({
+    // Return the file information
+    res.json({
       success: true,
       data: {
         filename: req.file.filename,
-        path: req.file.path,
+        originalname: req.file.originalname,
         mimetype: req.file.mimetype,
-        size: req.file.size
+        size: req.file.size,
+        path: `/uploads/${req.file.filename}`
       }
     });
   } catch (error) {
+    console.error('File upload error:', error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message || 'Error uploading file'
     });
   }
 });
@@ -94,14 +97,14 @@ router.use((err, req, res, next) => {
       message: err.message
     });
   }
-  
+
   if (err) {
     return res.status(400).json({
       success: false,
       message: err.message
     });
   }
-  
+
   next();
 });
 
