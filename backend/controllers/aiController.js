@@ -16,7 +16,7 @@ const openai = new OpenAI({
 // Process message with AI and return response
 export const processMessage = async (req, res) => {
   try {
-    const { chatId, message } = req.body;
+    const { chatId, message } = req.query;
 
     if (!message || !chatId) {
       return res.status(400).json({
@@ -25,7 +25,6 @@ export const processMessage = async (req, res) => {
       });
     }
 
-    // Check if chat exists and user is participant
     const chat = await Chat.findById(chatId);
 
     if (!chat) {
@@ -42,7 +41,6 @@ export const processMessage = async (req, res) => {
       });
     }
 
-    // Format previous messages for context (limit to last 10 for token efficiency)
     const previousMessages = chat.messages
       .slice(-10)
       .map(msg => ({
@@ -50,91 +48,74 @@ export const processMessage = async (req, res) => {
         content: msg.content
       }));
 
-    // Add current message
     previousMessages.push({
       role: 'user',
       content: message
     });
 
+    // Set headers for SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders(); // Flush the headers to establish the connection
+
     try {
-      // Call OpenAI API with timeout and retry logic
-      const response = await Promise.race([
-        openai.chat.completions.create({
-          model: 'deepseek-chat',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a helpful assistant that provides concise, accurate information.'
-            },
-            ...previousMessages
-          ],
-          temperature: 0.7,
-          max_tokens: 500
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('OpenAI API timeout')), 30000)
-        )
-      ]);
+      const stream = await openai.chat.completions.create({
+        model: 'deepseek-chat',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant that provides concise, accurate information.'
+          },
+          ...previousMessages
+        ],
+        temperature: 0.7,
+        max_tokens: 4096, // Increased max_tokens for longer responses
+        stream: true,
+      });
 
-      // Get AI response
-      const aiResponse = response.choices[0].message.content;
-
-      // Add AI response to chat using the chat model's addMessage method
-      const aiMessage = {
-        content: aiResponse,
-        isAI: true,
-        timestamp: new Date()
-      };
-
-      await chat.addMessage(aiMessage);
-
-      // Get the updated chat to get the properly structured message
-      const updatedChat = await Chat.findById(chatId)
-        .populate('messages.sender', 'username avatar');
-
-      const addedMessage = updatedChat.messages[updatedChat.messages.length - 1];
-
-      // Return properly structured message
-      res.status(200).json({
-        success: true,
-        data: {
-          ...addedMessage.toObject(),
-          sender: { username: "AI" }
+      let fullResponse = '';
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          fullResponse += content;
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
         }
-      });
+      }
+
+      // When the stream is finished, save the full message
+      if (fullResponse) {
+        const aiMessage = {
+          content: fullResponse,
+          isAI: true,
+          timestamp: new Date()
+        };
+        await chat.addMessage(aiMessage);
+      }
+      
+      // Send a final event to signal the end of the stream
+      res.write('data: [DONE]\n\n');
+      res.end();
+
     } catch (error) {
-      console.error('OpenAI API error:', error);
-
-      // Send a fallback response
-      const fallbackMessage = {
-        content: "I apologize, but I'm having trouble processing your request right now. Please try again in a moment.",
-        isAI: true,
-        timestamp: new Date()
-      };
-
-      await chat.addMessage(fallbackMessage);
-
-      // Get the updated chat to get the properly structured message
-      const updatedChat = await Chat.findById(chatId)
-        .populate('messages.sender', 'username avatar');
-
-      const addedMessage = updatedChat.messages[updatedChat.messages.length - 1];
-
-      res.status(200).json({
-        success: true,
-        data: {
-          ...addedMessage.toObject(),
-          sender: { username: "AI" }
-        },
-        warning: 'Used fallback response due to AI service error'
-      });
+      console.error('OpenAI API stream error:', error);
+      // Send an error event to the client
+      res.write(`data: ${JSON.stringify({ error: "I apologize, but I'm having trouble processing your request right now." })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
     }
   } catch (error) {
     console.error('AI processing error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Error processing AI request'
-    });
+    // This part will likely not be reached if headers are already sent,
+    // but it's good for catching initial setup errors.
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Error processing AI request'
+      });
+    } else {
+      res.end();
+    }
   }
 };
 

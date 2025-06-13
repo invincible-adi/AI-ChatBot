@@ -1,77 +1,92 @@
-import React from 'react';
-import { Bot, User } from 'lucide-react';
+import React, { useState } from 'react';
+import { Bot, User, Clipboard, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
-const ChatMessage = ({ message }) => {
-  const { currentUser } = useAuth();
-  // Determine if the message is from the current user
-  const isUser = message.isAI ? false : message.sender?._id === currentUser?._id;
+const ChatMessage = ({ msg, currentUser }) => {
+    const [isMessageCopied, setIsMessageCopied] = useState(false);
+    const isUser = msg.isAI ? false : msg.sender?._id === currentUser?._id;
 
-  // Defensive: fallback for missing timestamp
-  let timeString = '';
-  try {
-    timeString = message.timestamp ? new Date(message.timestamp).toLocaleTimeString() : '';
-  } catch {
-    timeString = '';
-  }
+    const handleMessageCopy = () => {
+        navigator.clipboard.writeText(msg.content);
+        setIsMessageCopied(true);
+        setTimeout(() => setIsMessageCopied(false), 2000);
+    };
 
-  // Defensive: fallback for missing attachments
-  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    const CodeBlock = {
+        code({ node, inline, className, children, ...props }) {
+            const [isCopied, setIsCopied] = useState(false);
+            const match = /language-(\w+)/.exec(className || '');
 
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div className={`flex ${isUser ? 'flex-row-reverse' : 'flex-row'} items-start max-w-[80%]`}>
-        <div className={`flex-shrink-0 ${isUser ? 'ml-2' : 'mr-2'}`}>
-          {isUser ? (
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-              <User className="w-5 h-5 text-white" />
+            const handleCopy = () => {
+                navigator.clipboard.writeText(String(children));
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
+            };
+
+            return !inline && match ? (
+                <div className="relative group/code">
+                    <button
+                        onClick={handleCopy}
+                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 opacity-0 group-hover/code:opacity-100 transition-opacity"
+                        aria-label="Copy code"
+                    >
+                        {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" />}
+                    </button>
+                    <SyntaxHighlighter style={atomDark} language={match[1]} PreTag="div" {...props}>
+                        {String(children).replace(/\n$/, '')}
+                    </SyntaxHighlighter>
+                </div>
+            ) : (
+                <code className={`${className} code-block`} {...props}>
+                    {children}
+                </code>
+            );
+        },
+    };
+
+    return (
+        <div
+            key={msg._id}
+            className={`group flex items-start gap-2 sm:gap-3 leading-8 fs-1 w-full max-w-full sm:max-w-[90%] md:max-w-[90%] ${msg.isAI ? 'self-start' : 'self-end flex-row-reverse'}`}
+            style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+        >
+            {isUser && (
+                <button
+                    onClick={handleMessageCopy}
+                    className="p-1.5 rounded-lg text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity mr-2"
+                    aria-label="Copy message"
+                >
+                    {isMessageCopied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" />}
+                </button>
+            )}
+            <div
+                className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex-shrink-0 ${msg.isAI ? 'bg-blue-500' : 'bg-green-500'} flex items-center justify-center text-white font-bold text-xs sm:text-base`}
+            >
+                {msg.isAI ? 'AI' : currentUser?.username?.charAt(0).toUpperCase() || 'U'}
             </div>
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center">
-              <Bot className="w-5 h-5 text-white" />
+            <div
+                className={`px-3 py-2 sm:px-4 sm:py-3 rounded-2xl ${msg.isAI
+                    ? 'bg-transparent text-gray-200 w-full rounded-bl-none'
+                    : 'bg-[#414158] text-white w-full rounded-br-none'
+                    } w-full break-words`}
+                style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', minWidth: 0 }}
+            >
+                <ReactMarkdown components={CodeBlock}>{msg.content}</ReactMarkdown>
             </div>
-          )}
+            {!isUser && (
+                <button
+                    onClick={handleMessageCopy}
+                    className="p-1.5 rounded-lg text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2"
+                    aria-label="Copy message"
+                >
+                    {isMessageCopied ? <Check className="w-4 h-4 text-green-500" /> : <Clipboard className="w-4 h-4" />}
+                </button>
+            )}
         </div>
-        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
-          <div className={`px-4 py-2 rounded-lg ${isUser
-            ? 'bg-blue-600 text-white rounded-tr-none'
-            : 'bg-gray-700 text-gray-100 rounded-tl-none'
-            }`}>
-            {message.content}
-          </div>
-          {attachments.length > 0 && (
-            <div className={`mt-2 ${isUser ? 'text-right' : 'text-left'}`}>
-              {attachments.map((attachment, index) => {
-                // Defensive: fallback for missing filename
-                const filename = attachment.filename || 'file';
-                // Show image preview if image, otherwise show download link
-                const isImage = attachment.mimetype && attachment.mimetype.startsWith('image/');
-                const fileUrl = attachment.filename ? `/uploads/${attachment.filename}` : undefined;
-                // Use a unique key: prefer attachment._id, else filename+index
-                const key = attachment._id || (attachment.filename ? attachment.filename + '-' + index : index);
-                return (
-                  <div key={key} className="text-sm text-gray-400">
-                    {fileUrl ? (
-                      isImage ? (
-                        <img src={fileUrl} alt={filename} className="max-h-40 rounded mb-1 border border-gray-600" />
-                      ) : (
-                        <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-400">{filename}</a>
-                      )
-                    ) : (
-                      filename
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div className={`text-xs text-gray-500 mt-1 ${isUser ? 'text-right' : 'text-left'}`}>
-            {timeString}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default ChatMessage;

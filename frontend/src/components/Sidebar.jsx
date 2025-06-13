@@ -24,22 +24,9 @@ const Sidebar = ({
     };
 
     return (
-        <>
-            {/* Mobile overlay - only clickable when sidebar is open */}
-            {isOpen && (
-                <div
-                    className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
-                    onClick={e => {
-                        e.stopPropagation();
-                        if (typeof onClose === 'function') onClose();
-                    }}
-                    aria-label="Close sidebar overlay"
-                />
-            )}
-            <aside
-                className={`fixed z-30 inset-y-0 left-0 w-[280px] bg-[#18181b] border-r border-gray-800 flex flex-col transition-all duration-300 ease-in-out md:static md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'
-                    }`}
-            >
+        <aside
+            className={`fixed top-0 left-0 z-40 w-64 h-screen bg-[#212327]  flex flex-col transition-transform duration-300 ease-in-out md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        >
                 {/* Mobile close button */}
                 <div className="md:hidden flex justify-end p-2">
                     <button
@@ -55,13 +42,13 @@ const Sidebar = ({
                     </button>
                 </div>
                 {/* Top: Logo and New Chat */}
-                <div className="flex flex-col gap-4 p-4 border-b border-gray-800">
+                <div className="flex flex-col gap-4 p-4 ">
                     <div className="flex items-center gap-2 text-xl font-bold text-white">
                         <span className="text-blue-500">AI</span>
                         <span>ChatBot</span>
                     </div>
                     <button
-                        className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#23232a] hover:bg-[#2a2a31] rounded-lg text-white font-medium transition-colors w-full"
+                        className="flex max-w-[70%] mx-auto items-center justify-center  gap-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-white font-medium transition-colors w-full"
                         onClick={onCreateChat}
                     >
                         <Plus size={18} />
@@ -79,8 +66,8 @@ const Sidebar = ({
                                 <li
                                     key={chat._id}
                                     className={`px-3 py-2.5 rounded-lg cursor-pointer text-white flex items-center justify-between transition-colors ${selectedChatId === chat._id
-                                        ? 'bg-[#23232a]'
-                                        : 'hover:bg-[#23232a]'
+                                        ? 'bg-[#494949]'
+                                        : 'hover:bg-[#494949]'
                                         }`}
                                     onClick={() => onSelectChat(chat._id)}
                                 >
@@ -102,7 +89,7 @@ const Sidebar = ({
                     </ul>
                 </div>
                 {/* Bottom: User Menu */}
-                <div className="p-4 border-t border-gray-800">
+                <div className="p-4">
                     <div className="relative">
                         <button
                             onClick={() => setShowUserMenu(!showUserMenu)}
@@ -129,7 +116,6 @@ const Sidebar = ({
                     </div>
                 </div>
             </aside>
-        </>
     );
 };
 
